@@ -1,0 +1,10 @@
+# Streamlit theme (the app's own settings live in ./config.toml, not here).
+[theme]
+# BAU blue for primary accents (Save buttons, focus rings, links).
+primaryColor = "#004b8e"
+
+[theme.sidebar]
+backgroundColor = "#004b8e"
+textColor = "#ffffff"
+# White accents so radio dots / links stay visible on the blue background.
+primaryColor = "#ffffff"

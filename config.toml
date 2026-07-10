@@ -1,0 +1,22 @@
+# =============================================================================
+# App configuration.  Edit this file to choose where data is stored.
+# =============================================================================
+
+[storage]
+# "excel"  -> store everything in a local .xlsx file (DEFAULT, simplest)
+# "google_sheets" -> store in a Google Sheet (needs service-account auth)
+backend = "google_sheets"
+
+[excel]
+# Path to the workbook. Created automatically on first run if it doesn't exist.
+path = "data/patients.xlsx"
+
+[google_sheets]
+# Only used when backend = "google_sheets".
+# 1) Create a Google Cloud service account, enable the Google Sheets + Drive APIs.
+# 2) Download its JSON key and put the path below.
+# 3) Share the target Google Sheet with the service-account email (Editor).
+# 4) Put the Sheet's ID (the long string in its URL) below.
+spreadsheet_id = "1A_szQ3EBQObP6g7d7Dv6YP4PHOohd-1dAAtAVofRh1g"
+worksheet_name = "patients"
+service_account_file = "service_account.json"

@@ -1,0 +1,13 @@
+# --- secrets: NEVER commit credentials ---
+service_account.json
+
+# --- patient data stays out of source control ---
+data/
+
+# --- local junk ---
+__pycache__/
+*.pyc
+~$*
+*.lock
+st_run.log
+.firecrawl/
