@@ -173,7 +173,15 @@ class _GoogleSheetsBackend:
     def __init__(self, cfg):
         import gspread  # imported lazily so Excel users need not install it
         gs = cfg["google_sheets"]
-        self.client = gspread.service_account(filename=gs["service_account_file"])
+        key_file = Path(gs["service_account_file"])
+        if key_file.exists():
+            self.client = gspread.service_account(filename=key_file)
+        else:
+            # Deployed (e.g. Streamlit Community Cloud): the key file is not
+            # in the repo, so read the credentials from st.secrets instead.
+            import streamlit as st
+            self.client = gspread.service_account_from_dict(
+                dict(st.secrets["gcp_service_account"]))
         self.sh = self.client.open_by_key(gs["spreadsheet_id"])
         self.ws_name = gs["worksheet_name"]
         # gspread has its own server-side consistency; a no-op local lock keeps
