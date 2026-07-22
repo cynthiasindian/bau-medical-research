@@ -18,5 +18,8 @@ path = "data/patients.xlsx"
 # 3) Share the target Google Sheet with the service-account email (Editor).
 # 4) Put the Sheet's ID (the long string in its URL) below.
 spreadsheet_id = "1A_szQ3EBQObP6g7d7Dv6YP4PHOohd-1dAAtAVofRh1g"
-worksheet_name = "patients"
+# Renamed from "patients" (2026-07-23): a stale deployed app instance kept
+# rewriting the old tab with its outdated schema. Current code uses this tab;
+# anything still writing to "patients" is an outdated instance.
+worksheet_name = "patients_v2"
 service_account_file = "service_account.json"
