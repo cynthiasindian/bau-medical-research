@@ -330,6 +330,12 @@ class Storage:
     def _read_normalized(self):
         """Read sheet and guarantee every expected column exists, in order."""
         df = self._b.read_df()
+        # Manual edits in the sheet can leave duplicate or unnamed header keys;
+        # a duplicate makes df[col] return a DataFrame (not a Series) and
+        # crashes the app. Keep the first occurrence of each name and ignore
+        # nameless columns.
+        df = df.loc[:, ~df.columns.duplicated()]
+        df = df[[c for c in df.columns if str(c).strip() != ""]]
         for col in core.COLUMNS:
             if col not in df.columns:
                 df[col] = ""
