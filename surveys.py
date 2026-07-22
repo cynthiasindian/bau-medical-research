@@ -24,9 +24,13 @@
 #                  answers on save via the field's "compute" function)
 #    group     : optional subgroup heading rendered above the field when it
 #                differs from the previous field's group.
+#    doc       : optional long markdown text rendered in a collapsible
+#                expander directly above the field's widget (used for the
+#                informed-consent form). "doc_title" sets the expander label.
 #
 #  A section may also have an "intro" string, shown as an info banner above
-#  its form.
+#  its form, and "no_blank": True to drop the "(no answer)" choice from its
+#  select/radio/likert/bool widgets (an answer can then no longer be unset).
 #    required  : True/False. Required fields decide when a section is "complete".
 #    options   : list of choices. REQUIRED for select / multiselect / likert.
 #    min / max : numeric bounds (optional, for integer / number).
@@ -38,9 +42,100 @@
 #    post1_* -> Post §1       post2_* -> Post §2
 # =============================================================================
 
-# The field whose value is shown as the patient's name in the list / search.
+# The field whose value identifies the patient in the list / search / pickers
+# (the hospital ID — the auto-generated P-#### code stays the internal key).
 # It must be one of the keys in the Demographics section below.
-DISPLAY_ID_FIELD = "demo_full_name"
+DISPLAY_ID_FIELD = "demo_hospital_id"
+
+
+# -----------------------------------------------------------------------------
+# Informed Consent Form [Form H-V(A)] — text verbatim from "Consent Form.docx".
+# Shown in a collapsible panel above the consent question; answering "Yes"
+# to that question is the participant's signature. (The docx's empty sections
+# "Alternatives to participation" / "If you are harmed" are omitted.)
+# -----------------------------------------------------------------------------
+_CONSENT_DOC = """
+**Principal Investigator:** Nariman Salem\\
+**Study Title:** Postoperative Anxiety and Delirium in General, Regional and Monitored Anesthesia Care\\
+**Date:** 01/4/2026
+
+##### PURPOSE OF RESEARCH STUDY
+The purpose of the study is to understand the relation between postoperative \
+anxiety and postoperative delirium in 3 different types of anesthesia in the \
+Lebanese hospital settings. By participating in this research, you will be \
+helping us conclude if there is an association between these variables in \
+Lebanon.
+
+We anticipate that approximately 400 participants in this study.
+
+##### PROCEDURES
+You are asked to fill out a questionnaire provided by the research team. The \
+estimated time to complete it is 10 minutes. In case a question is not clear, \
+you can ask the present team members to explain it to you.
+
+##### RISKS/DISCOMFORTS
+The risks associated with participation in this study are no greater than \
+those encountered in daily life or during the performance of routine physical \
+or psychological examinations or tests.
+
+##### BENEFITS
+There are no direct benefits to you from participating in this study.
+
+This study can benefit the medical community, by approaching the patients' \
+anxiety and delirium postoperatively, optimizing anesthesia practice and \
+improving perioperative patient care.
+
+##### VOLUNTARY PARTICIPATION AND RIGHT TO WITHDRAW
+Your participation in this study is entirely voluntary. You choose whether to \
+participate or not to participate, there are no penalties, and you will not \
+lose any benefits to which you would otherwise be entitled.
+
+##### CIRCUMSTANCES THAT COULD LEAD US TO END YOUR PARTICIPATION
+Under certain circumstances we may decide to end your participation before \
+you have completed the survey. Specifically, we may stop your participation \
+if we find that you do not fit the criteria set for this study.
+
+##### CONFIDENTIALITY
+Any study records that identify you will be kept confidential. The records \
+from your participation may be reviewed by people responsible for making sure \
+that research is done properly, including members of the BAU Institutional \
+Review Board. All of these people are required to keep your identity \
+confidential. Otherwise, records that identify you will be available only to \
+people working on the study, unless you give permission for other people to \
+see the records.
+
+The study records will be created, stored, and maintained to protect \
+confidential information (e.g., use of code numbers rather than participants' \
+names on data sheets, keeping records in a safe place).
+
+##### COMPENSATION
+You will not receive any payment or other compensation for participating in \
+this study.
+
+##### IF YOU HAVE QUESTIONS OR CONCERNS
+You can ask questions to the researcher(s) working with you or call: \
+Dr Nariman Salem, Beirut Arab University, Hariri Building on 01 300110 \
+Ex: 2791.
+
+If you have questions about your rights as a research participant or feel \
+that you have not been treated fairly, please call the BAU Institutional \
+Review Board at 00961 1 300110 ext. 2743 or 2689.
+
+##### STATEMENT BY THE RESEARCHER / PERSON TAKING CONSENT
+I have accurately read out the information sheet to the potential \
+participant, and to the best of my ability made sure that the participant \
+understands the information in this consent form. I confirm that the \
+participant was given an opportunity to ask questions about the study, and \
+all the questions asked by the participant have been answered correctly and \
+to the best of my ability. I confirm that the individual has not been coerced \
+into giving consent, and the consent has been given freely and voluntarily.
+
+##### WHAT YOUR SIGNATURE MEANS
+Your signature below means that you understand the information in this \
+consent form.
+
+Your signature also means that you agree to participate in the study.
+"""
 
 
 def _cam_delirium(values):
@@ -57,6 +152,32 @@ def _cam_delirium(values):
     box1_other = v["cam_1a"] == "Yes" or v["cam_1b"] == "Yes"
     box2 = v["cam_3"] == "Yes" or not str(v["cam_4"]).startswith("Alert")
     return "Yes" if (v["cam_2"] == "Yes" and box1_other and box2) else "No"
+
+
+def _pack_years(values):
+    """Pack years = cigarettes per day / 20 * years smoked.
+    Returns "" until both smoker questions are answered."""
+    cpd = values.get("demo_cigs_per_day")
+    yrs = values.get("demo_smoking_years")
+    if cpd in (None, "") or yrs in (None, ""):
+        return ""
+    return round(float(cpd) / 20 * float(yrs), 1)
+
+
+def _pain_category(values):
+    """Classify the 0-10 pain score: 0 no pain, 1-3 mild, 4-6 moderate,
+    7-10 severe. Returns "" until the score is selected."""
+    score = values.get("demo_pain_score")
+    if score in (None, ""):
+        return ""
+    score = int(score)
+    if score == 0:
+        return "No pain (0)"
+    if score <= 3:
+        return "Mild pain (1-3)"
+    if score <= 6:
+        return "Moderate pain (4-6)"
+    return "Severe pain (7-10)"
 
 
 # -----------------------------------------------------------------------------
@@ -164,35 +285,45 @@ def _hads_level(subscale, prefix="hads"):
     return compute
 
 
-def _hads_fields(prefix="hads"):
-    """The 14 HADS items (verbatim, paper order) + 4 auto-scored fields.
+def _hads_fields(prefix="hads", subscales=("A", "D")):
+    """The HADS items (verbatim, paper order) + auto-scored fields.
     As on the paper: every reply carries its 0-3 score label, and every
     question shows the column it belongs to (A = Anxiety, D = Depression).
     The same instrument is used pre- and post-surgery; `prefix` keeps each
-    administration in its own spreadsheet columns.
+    administration in its own spreadsheet columns. `subscales` limits which
+    columns are administered (the pre-surgery form uses only "A" — the
+    depression items are not asked before surgery); items are renumbered
+    over what is shown.
     """
+    items = [it for it in _HADS_ITEMS if it[1] in subscales]
     fields = [
         {"key": _hads_key(key, prefix),
          "label": f"{i}. {label}  ·  Column {sub} ({_HADS_SUBSCALE[sub]})",
          "type": "radio", "horizontal": False, "required": True,
          "options": [_hads_option(text, score) for text, score in opts]}
-        for i, (key, sub, label, opts) in enumerate(_HADS_ITEMS, start=1)
+        for i, (key, sub, label, opts) in enumerate(items, start=1)
     ]
-    fields += [
-        {"key": f"{prefix}_anxiety_score", "group": "Scores (auto-calculated on save)",
-         "label": "Total score: Anxiety (A)", "type": "computed",
-         "required": False, "compute": _hads_total("A", prefix), "help": _HADS_HELP},
-        {"key": f"{prefix}_anxiety_level", "label": "Anxiety (A) — interpretation",
-         "type": "computed", "required": False, "compute": _hads_level("A", prefix),
-         "help": _HADS_HELP},
-        {"key": f"{prefix}_depression_score",
-         "label": "Total score: Depression (D)", "type": "computed",
-         "required": False, "compute": _hads_total("D", prefix), "help": _HADS_HELP},
-        {"key": f"{prefix}_depression_level",
-         "label": "Depression (D) — interpretation", "type": "computed",
-         "required": False, "compute": _hads_level("D", prefix), "help": _HADS_HELP},
-    ]
-    return fields
+    scores = []
+    if "A" in subscales:
+        scores += [
+            {"key": f"{prefix}_anxiety_score",
+             "label": "Total score: Anxiety (A)", "type": "computed",
+             "required": False, "compute": _hads_total("A", prefix), "help": _HADS_HELP},
+            {"key": f"{prefix}_anxiety_level", "label": "Anxiety (A) — interpretation",
+             "type": "computed", "required": False, "compute": _hads_level("A", prefix),
+             "help": _HADS_HELP},
+        ]
+    if "D" in subscales:
+        scores += [
+            {"key": f"{prefix}_depression_score",
+             "label": "Total score: Depression (D)", "type": "computed",
+             "required": False, "compute": _hads_total("D", prefix), "help": _HADS_HELP},
+            {"key": f"{prefix}_depression_level",
+             "label": "Depression (D) — interpretation", "type": "computed",
+             "required": False, "compute": _hads_level("D", prefix), "help": _HADS_HELP},
+        ]
+    scores[0]["group"] = "Scores (auto-calculated on save)"
+    return fields + scores
 
 
 SECTIONS = [
@@ -206,19 +337,25 @@ SECTIONS = [
         "survey": "pre",
         "number": 1,
         "title": "Demographics",
+        "no_blank": True,   # per protocol: no "(no answer)" choice pre-surgery
         "fields": [
             # ---- Consent -----------------------------------------------------
             {"key": "demo_consent", "group": "Consent",
+             "doc_title": "📄 Informed Consent Form [Form H-V(A)] — tap to "
+                          "read before signing",
+             "doc": _CONSENT_DOC,
              "label": "Informed consent form signed by the patient",
              "type": "bool", "required": True,
-             "help": "The signed paper consent form is required before "
-                     "starting the survey."},
+             "help": "Answering 'Yes' is the participant's signature: it "
+                     "means they understand the information in the consent "
+                     "form above and agree to participate in the study."},
 
             # ---- Personal information ----------------------------------------
-            {"key": "demo_full_name", "group": "Personal information",
-             "label": "Full name", "type": "text", "required": True,
-             "help": "Shown in the patient list. The auto-generated P-#### "
-                     "code is the anonymized research ID."},
+            {"key": "demo_hospital_id", "group": "Personal information",
+             "label": "Hospital ID", "type": "text", "required": True,
+             "help": "The patient's hospital ID — shown in the patient list "
+                     "and used to find the patient for the post-surgery "
+                     "survey."},
             {"key": "demo_phone", "label": "Contact number", "type": "text",
              "required": False,
              "help": "Optional — for arranging the post-surgery follow-up."},
@@ -227,6 +364,14 @@ SECTIONS = [
             {"key": "demo_age_group", "label": "Age", "type": "select",
              "required": True,
              "options": ["18-29", "30-39", "40-49", "50-59", "60 or above"]},
+            {"key": "demo_bmi", "label": "BMI", "type": "select",
+             "required": True,
+             "options": ["<18.5 (underweight)",
+                         "18.5-24.9 (Normal weight)",
+                         "25.0-29.9 (overweight)",
+                         "30.0-34.9 (obesity class I)",
+                         "35.0-39.9 (obesity class II)",
+                         "40 or above (obesity class III)"]},
             {"key": "demo_nationality", "label": "Nationality", "type": "select",
              "required": True,
              "options": ["Lebanese", "Palestinian", "Syrian", "Other"]},
@@ -243,18 +388,39 @@ SECTIONS = [
              "options": ["Single", "Married", "Widowed", "Divorced", "Separated"]},
 
             # ---- Social & lifestyle ------------------------------------------
-            {"key": "demo_smoker", "group": "Social & lifestyle",
-             "label": "Are you a smoker?", "type": "bool", "required": True},
+            {"key": "demo_smoking_status", "group": "Social & lifestyle",
+             "label": "Smoking status (cigarettes, shisha…)",
+             "type": "radio", "required": True,
+             "options": ["Non smoker", "Former smoker",
+                         "Current occasional smoker", "Current daily smoker"]},
+            {"key": "demo_cigs_per_day",
+             "label": "How many cigarettes do you smoke per day?",
+             "type": "integer", "required": False, "min": 0, "max": 200,
+             "help": "Only if a current (occasional or daily) smoker."},
+            {"key": "demo_smoking_years",
+             "label": "For how many years have you smoked?",
+             "type": "integer", "required": False, "min": 0, "max": 100,
+             "help": "Only if a current (occasional or daily) smoker."},
+            {"key": "demo_pack_years",
+             "label": "Pack years (auto-calculated on save)",
+             "type": "computed", "required": False, "compute": _pack_years,
+             "help": "Cigarettes per day ÷ 20 × years smoked."},
+            {"key": "demo_alcohol_48h",
+             "label": "Did you consume alcohol in the last 48 hours?",
+             "type": "bool", "required": True},
+            {"key": "demo_drugs_48h",
+             "label": "Did you use any drugs in the last 48 hours?",
+             "type": "bool", "required": True},
             {"key": "demo_education", "label": "What is your level of education?",
              "type": "radio", "required": True,
              "options": ["Not educated", "High school education",
-                         "University education"]},
+                         "University education or higher"]},
             {"key": "demo_employment", "label": "What is your employment status?",
              "type": "radio", "required": True,
-             "options": ["Employed", "Not employed"]},
+             "options": ["Employed", "Not employed", "Retired"]},
             {"key": "demo_employment_cause",
              "label": "Employment — specify the cause", "type": "text",
-             "required": False, "help": "Only if 'Not employed'."},
+             "required": False, "help": "Only if 'Not employed' or 'Retired'."},
             {"key": "demo_healthcare_profession",
              "label": "Are you involved in any healthcare-related profession?",
              "type": "bool", "required": True},
@@ -267,7 +433,8 @@ SECTIONS = [
              "label": "Chronic illness — select all that apply",
              "type": "multiselect", "required": False,
              "options": ["Hypertension", "Diabetes Mellitus",
-                         "Cardiovascular Disease", "Other"],
+                         "Cardiovascular Disease", "CKD", "COPD",
+                         "History of cancer", "Other"],
              "help": "Only if the previous answer is 'Yes'."},
             {"key": "demo_chronic_other",
              "label": "Other chronic illness — specify", "type": "text",
@@ -315,9 +482,6 @@ SECTIONS = [
              "type": "bool", "required": True},
             {"key": "demo_surgery_type", "label": "Type of current surgery",
              "type": "radio", "required": True, "options": ["Minor", "Major"]},
-            {"key": "demo_surgery_date", "label": "Planned surgery date",
-             "type": "date", "required": False,
-             "help": "Optional — helps schedule the post-surgery survey."},
             {"key": "demo_anesthesia_types_familiar",
              "label": "Are you familiar with the types of anesthesia in general?",
              "type": "bool", "required": True},
@@ -342,28 +506,37 @@ SECTIONS = [
 
             # ---- Pain ---------------------------------------------------------
             {"key": "demo_pain_score", "group": "Pain",
-             "label": "Are you in pain? Rate your current pain",
+             "label": "Select from the options below to indicate how bad "
+                      "you feel your pain is",
              "type": "likert", "required": True,
              "options": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
              "help": "0 = no pain · 1-3 = mild · 4-6 = moderate · "
                      "7-10 = severe"},
+            {"key": "demo_pain_category",
+             "label": "Pain category (auto-calculated on save)",
+             "type": "computed", "required": False, "compute": _pain_category,
+             "help": "0 = no pain · 1-3 = mild pain · 4-6 = moderate pain · "
+                     "7-10 = severe pain"},
         ],
     },
 
     # -------------------------------------------------------------------------
-    # PRE-SURGERY  ·  SECTION 2  ·  HADS
-    # Same instrument as Post-Surgery Section 2, stored in its own
-    # hads_pre_* columns so pre and post scores sit side by side.
+    # PRE-SURGERY  ·  SECTION 2  ·  HADS (Anxiety items only)
+    # Same instrument as Post-Surgery Section 2 but restricted to the seven
+    # Column A items — the depression (Column D) questions are not asked
+    # before surgery. Stored in its own hads_pre_* columns so pre and post
+    # scores sit side by side.
     # -------------------------------------------------------------------------
     {
         "key": "pre_s2",
         "survey": "pre",
         "number": 2,
         "title": "Hospital Anxiety and Depression Scale (HADS)",
+        "no_blank": True,   # per protocol: no "(no answer)" choice pre-surgery
         "intro": "Tick the reply that is closest to how you have been feeling "
                  "in the past week. Don't take too long over your replies: "
                  "your immediate is best.",
-        "fields": _hads_fields("hads_pre"),
+        "fields": _hads_fields("hads_pre", subscales=("A",)),
     },
 
     # -------------------------------------------------------------------------
@@ -378,6 +551,7 @@ SECTIONS = [
         "survey": "post",
         "number": 1,
         "title": "Delirium Assessment (Short CAM)",
+        "no_blank": True,   # per protocol: no "(no answer)" choice
         "intro": "Short Confusion Assessment Method (Short CAM) Worksheet — "
                  "testing of orientation and sustained attention is "
                  "recommended prior to scoring, such as digit spans, days of "
@@ -438,19 +612,23 @@ SECTIONS = [
     },
 
     # -------------------------------------------------------------------------
-    # POST-SURGERY  ·  SECTION 2  ·  HADS
+    # POST-SURGERY  ·  SECTION 2  ·  HADS (Anxiety items only)
     # Source: HADS-PDF.pdf — Hospital Anxiety and Depression Scale.
-    # Items/wording verbatim; anxiety & depression scores auto-calculated.
+    # Same 7 Column A items as Pre §2, administered ANEW after surgery and
+    # stored in separate hads_* columns (the pre administration lives in
+    # hads_pre_*), so pre and post answers/scores never mix. The depression
+    # (Column D) questions are removed, matching the pre-surgery form.
     # -------------------------------------------------------------------------
     {
         "key": "post_s2",
         "survey": "post",
         "number": 2,
         "title": "Hospital Anxiety and Depression Scale (HADS)",
+        "no_blank": True,   # per protocol: no "(no answer)" choice
         "intro": "Tick the reply that is closest to how you have been feeling "
                  "in the past week. Don't take too long over your replies: "
                  "your immediate is best.",
-        "fields": _hads_fields(),
+        "fields": _hads_fields(subscales=("A",)),
     },
 ]
 

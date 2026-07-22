@@ -264,3 +264,98 @@ round-trip, app renders.
 - Spreadsheet now has 55 columns; created automatically on next run.
 - Verified via `streamlit.testing.v1.AppTest`: form fills, submits, creates
   P-0001 with `pre_s1_status=complete`; partial save gives `partial`.
+
+## Pre-surgery content revision (user request, 2026-07-22)
+All changes PRE-SURGERY only; post-surgery sections untouched.
+
+### Tasks
+- [x] 25. Demographics: BMI select (6 WHO classes) right after Age.
+- [x] 26. Smoking: "Are you a smoker?" replaced by "Smoking status
+      (cigarettes, shisha…)" (Non/Former/Current occasional/Current daily,
+      key `demo_smoking_status`; old `demo_smoker` column retires) +
+      cigarettes/day + years smoked (optional, "only if current smoker"
+      help — st.form cannot show/hide dynamically, same pattern as the
+      other conditional follow-ups) + computed `demo_pack_years`
+      (= cigs/day ÷ 20 × years, rounded to 1 decimal).
+- [x] 27. New required bools: alcohol in last 48h, drugs in last 48h.
+- [x] 28. Education option now "University education or higher";
+      employment gains "Retired" (cause field covers Not employed/Retired).
+- [x] 29. Chronic illness options + CKD, COPD, History of cancer.
+- [x] 30. Removed "Planned surgery date" (demo_surgery_date retires).
+- [x] 31. Pain question relabeled ("Select from the options below…"),
+      + computed `demo_pain_category` (0 none / 1-3 mild / 4-6 moderate /
+      7-10 severe).
+- [x] 32. Engine: section-level `"no_blank": True` (set on pre_s1 + pre_s2)
+      drops the "(no answer)" option from select/radio/likert/bool via
+      `render_field(allow_blank=)`. Post-surgery keeps the blank option.
+- [x] 33. Pre-S2 HADS: depression (Column D) items removed —
+      `_hads_fields(subscales=("A",))` → 7 anxiety items renumbered 1-7 +
+      anxiety score/level only (hads_pre_2/4/6/8/10/12/14 and
+      hads_pre_depression_* columns retire). Post-S2 HADS unchanged (18
+      fields).
+- [x] 34. Verified: schema builds (84 unique columns), field order/options
+      unit-checked, pack-years (20/day×15y=15.0; 10/day×7y=3.5) and pain
+      category compute correct and return "" when unanswered, pre-HADS
+      anxiety scoring still works, app boots headless with HTTP 200.
+
+Note: retired columns (demo_smoker, demo_surgery_date, hads_pre_ D-items)
+disappear from the sheet on the next write once they hold no data; existing
+"University education" answers no longer match the renamed option and will
+show as unanswered when that patient's form is reopened.
+
+## Informed Consent Form text in-app (user request, 2026-07-23)
+Source: C:\Users\user\Downloads\Consent Form.docx — Form H-V(A), PI Nariman
+Salem, dated 01/4/2026. Full text (verbatim) now shown in the app above the
+consent question; answering "Yes" is the participant's signature.
+
+### Tasks
+- [x] 35. Engine: optional field keys `doc` (long markdown) + `doc_title` →
+      rendered as a collapsible st.expander directly above that field's
+      widget in `render_section_form`. No schema/storage impact.
+- [x] 36. `surveys.py`: `_CONSENT_DOC` markdown constant with all 11
+      non-empty docx sections (Purpose … What Your Signature Means),
+      attached to `demo_consent`; help text reworded — "Yes" = signature
+      (understands the form + agrees to participate). The docx's empty
+      "Alternatives to participation" / "If you are harmed" headings were
+      omitted; the "Under certain circumstances…" paragraph was placed
+      under its matching "Circumstances that could lead us to end your
+      participation" heading.
+- [x] 37. Verified: 84 columns unchanged, all 11 headings present in order,
+      markdown hard line breaks in the PI/title header, app boots HTTP 200.
+- [x] 38. Live Google Sheet migrated to the new layout (rewrite of the
+      normalized df): P-0001 "Dalaa" intact, 8 new demo_* columns present,
+      demo_surgery_date dropped (was empty), 10 retired columns with data
+      kept in the "Other" block. Delete/clear P-0001's old answers and the
+      leftovers vanish on the next save.
+
+## Post-surgery revision (user request, 2026-07-23)
+- [x] 39. `no_blank: True` on post_s1 + post_s2 — "(no answer)" option
+      removed from ALL sections now.
+- [x] 40. Post-S2 HADS: Column D (depression) items removed, same as pre —
+      `_hads_fields(subscales=("A",))` → hads_1/3/5/7/9/11/13 renumbered
+      1-7 + anxiety score/level. Pre/post remain fully independent
+      administrations (hads_pre_* vs hads_* columns; post always starts
+      blank — confirmed to user).
+- [x] 41. Schema now 75 canonical columns; verified unit checks + app boots
+      HTTP 200. Live sheet migrated again: Dalaa intact, 94 total columns
+      (75 + 19 retired-with-data: old smoker, pre+post HADS D-items and
+      depression scores, all preserved in the "Other" block).
+
+## Hospital ID replaces Full name (user request, 2026-07-23)
+User manually renamed sheet G3 "Full name"->"Hospital ID" and G4
+demo_full_name->demo_hospital_id; the app now matches, so the manual edit
+is permanent (headers regenerate identically on every write).
+- [x] 42. surveys.py: demo_full_name -> demo_hospital_id, label
+      "Hospital ID"; DISPLAY_ID_FIELD updated (display_id column now holds
+      the hospital ID; the auto P-#### stays the internal key only).
+- [x] 43. app.py: patient list shows "Hospital ID" column instead of the
+      P-#### code; search relabeled "Search by hospital ID" (still matches
+      P-codes too); patient pickers list hospital IDs (P-code only as
+      fallback for blank / duplicate IDs); created/editing/delete messages
+      all show the hospital ID instead of the auto code.
+- [x] 44. storage.py: display_id header label -> "Hospital ID (shown in
+      lists)". display_id keeps auto-syncing from demo_hospital_id on
+      create + pre_s1 save (existing mechanism, key change only).
+- [x] 45. Verified: 75 columns (demo_full_name gone), live sheet rewritten —
+      G3 label "Hospital ID", P-0001's value "Dalaa" carried over into
+      demo_hospital_id/display_id, app boots HTTP 200.

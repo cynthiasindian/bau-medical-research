@@ -36,7 +36,7 @@ storage = get_storage()
 # Widget rendering: one field -> one Streamlit input -> a Python value.
 # `disabled` is used for the overwrite-protection lock on completed sections.
 # -----------------------------------------------------------------------------
-def render_field(field, current, disabled=False):
+def render_field(field, current, disabled=False, allow_blank=True):
     t = field["type"]
     label = field["label"] + (" *" if field.get("required") else "")
     help_ = field.get("help")
@@ -45,6 +45,9 @@ def render_field(field, current, disabled=False):
     # A leading "" option on every choice widget lets a value be cleared again
     # (shown as "(no answer)"). Required-ness only drives completion status,
     # so an accidental click can always be reverted to unanswered.
+    # Sections defined with "no_blank": True pass allow_blank=False: nothing is
+    # preselected, but once answered a choice can only be changed, not unset.
+    blank = [""] if allow_blank else []
     fmt = lambda o: "(no answer)" if o == "" else str(o)
 
     if t == "text":
@@ -70,14 +73,14 @@ def render_field(field, current, disabled=False):
                 return None
         return val
     if t == "select":
-        opts = [""] + list(field["options"])
+        opts = blank + list(field["options"])
         # index=None -> nothing preselected; an unanswered question must not
         # silently record the first option.
         idx = opts.index(current) if current in opts else None
         return st.selectbox(label, opts, index=idx, format_func=fmt,
                             help=help_, disabled=disabled, key=key)
     if t in ("likert", "radio"):  # likert stores an int, radio stores a string
-        opts = [""] + list(field["options"])
+        opts = blank + list(field["options"])
         idx = opts.index(current) if current in opts else None
         return st.radio(label, opts, index=idx, format_func=fmt,
                         horizontal=field.get("horizontal", True),
@@ -86,7 +89,7 @@ def render_field(field, current, disabled=False):
         return st.multiselect(label, field["options"], default=current or [],
                               help=help_, disabled=disabled, key=key)
     if t == "bool":
-        opts = ["", "Yes", "No"]
+        opts = blank + ["Yes", "No"]
         idx = opts.index(current) if current in opts else None
         return st.radio(label, opts, index=idx, format_func=fmt, horizontal=True,
                         help=help_, disabled=disabled, key=key)
@@ -141,8 +144,14 @@ def render_section_form(section, record, patient_id):
                 group = field["group"]
                 st.divider()
                 st.markdown(f"##### {group}")
+            # Optional "doc": long text (e.g. the informed-consent form) in a
+            # collapsible panel directly above the field it belongs to.
+            if field.get("doc"):
+                with st.expander(field.get("doc_title", "ℹ️ Information")):
+                    st.markdown(field["doc"])
             current = core.from_cell(field, record.get(field["key"], "")) if record else None
-            values[field["key"]] = render_field(field, current, disabled=locked)
+            values[field["key"]] = render_field(field, current, disabled=locked,
+                                                allow_blank=not section.get("no_blank"))
         submitted = st.form_submit_button("Save section", disabled=locked, type="primary")
 
     if not submitted:
@@ -171,14 +180,14 @@ def render_section_form(section, record, patient_id):
 # -----------------------------------------------------------------------------
 def page_patient_list():
     st.header("Patient list")
-    if pid := st.session_state.pop("_deleted_flash", None):
-        st.success(f"Patient `{pid}` was permanently deleted.")
+    if deleted := st.session_state.pop("_deleted_flash", None):
+        st.success(f"Patient **{deleted}** was permanently deleted.")
     records = storage.list_records()
     if not records:
         st.info("No patients yet. Go to **Pre-Surgery Survey** to add one.")
         return
 
-    query = st.text_input("Search by name or patient ID").strip().lower()
+    query = st.text_input("Search by hospital ID").strip().lower()
 
     rows = []
     for r in records:
@@ -188,8 +197,7 @@ def page_patient_list():
         pre_done, pre_total = core.survey_progress(r, "pre")
         post_done, post_total = core.survey_progress(r, "post")
         rows.append({
-            "patient_id": r["patient_id"],
-            "Name": r.get("display_id", ""),
+            "Hospital ID": r.get("display_id", "") or r["patient_id"],
             "Pre": f"{pre_done}/{pre_total} done",
             "Post": f"{post_done}/{post_total} done",
             "Updated": r.get("updated_at", ""),
@@ -203,14 +211,15 @@ def page_patient_list():
         pid = patient_picker("Patient to delete", key="del_pick")
         if pid:
             rec = storage.get_patient(pid)
-            st.warning(f"This permanently deletes **{rec.get('display_id','')}** "
-                       f"(`{pid}`) and **all** of their pre- and post-surgery "
-                       f"answers. This cannot be undone.")
+            st.warning(f"This permanently deletes the patient with Hospital ID "
+                       f"**{rec.get('display_id','') or pid}** and **all** of "
+                       f"their pre- and post-surgery answers. "
+                       f"This cannot be undone.")
             sure = st.checkbox("I understand this cannot be undone", key="del_sure")
             if st.button("Delete patient permanently", key="del_btn",
                          type="primary", disabled=not sure):
                 storage.delete_patient(pid)
-                st.session_state["_deleted_flash"] = pid
+                st.session_state["_deleted_flash"] = rec.get("display_id", "") or pid
                 st.session_state.pop("del_sure", None)
                 st.rerun()
 
@@ -219,12 +228,18 @@ def page_patient_list():
 # Helpers for the survey pages
 # -----------------------------------------------------------------------------
 def patient_picker(label, key):
-    """Selectbox of existing patients -> returns selected patient_id or None."""
+    """Selectbox of existing patients -> returns selected patient_id or None.
+    Patients are listed by hospital ID (display_id); the internal P-#### code
+    is shown only as a fallback / to disambiguate duplicates."""
     records = storage.list_records()
     if not records:
         return None
-    options = {f'{r["patient_id"]} · {r.get("display_id","")}': r["patient_id"]
-               for r in records}
+    options = {}
+    for r in records:
+        text = str(r.get("display_id", "")).strip() or r["patient_id"]
+        if text in options:  # duplicate hospital ID -> disambiguate
+            text = f'{text} ({r["patient_id"]})'
+        options[text] = r["patient_id"]
     choice = st.selectbox(label, ["—"] + list(options.keys()), key=key)
     return options.get(choice)
 
@@ -235,7 +250,7 @@ def edit_existing_sections(patient_id, survey):
     if record is None:
         st.error("Patient not found.")
         return
-    st.success(f"Editing **{record.get('display_id','')}**  ·  `{patient_id}`")
+    st.success(f"Editing patient — Hospital ID: **{record.get('display_id','') or patient_id}**")
 
     # "Saved" feedback must survive the st.rerun() that follows a save.
     if flash := st.session_state.pop("_saved_flash", None):
@@ -275,8 +290,8 @@ def page_pre_survey():
 
     if mode == "➕ New patient":
         if flash := st.session_state.pop("_created_flash", None):
-            pid, missing = flash
-            st.success(f"Created patient **{pid}**. "
+            hosp_id, missing = flash
+            st.success(f"Created patient — Hospital ID: **{hosp_id}**. "
                        f"Switch to 'Existing patient' to complete the remaining sections.")
             if missing:
                 st.warning(f"⚠️ Demographics saved as **partial** — it only counts "
@@ -295,12 +310,13 @@ def page_pre_survey():
                 st.error(f"'{name_label}' is required to create a patient.")
                 return
             with st.spinner("Creating patient — please wait…"):
-                new_id = storage.create_patient(cells)
+                storage.create_patient(cells)
             # Blank the form so the next patient doesn't inherit these answers
             # (also prevents a double-click from creating a duplicate).
             _reset_form_state(demo)
-            st.session_state["_created_flash"] = (new_id,
-                                                  core.missing_required(demo, cells))
+            st.session_state["_created_flash"] = (
+                str(cells.get(surveys.DISPLAY_ID_FIELD, "")).strip(),
+                core.missing_required(demo, cells))
             st.rerun()
         return
 

@@ -55,7 +55,7 @@ def _schema_blocks(df_columns):
 def _column_labels():
     """key -> full question text, for the human-readable header row."""
     labels = {"patient_id": "Patient ID (auto)",
-              "display_id": "Patient name (shown in lists)",
+              "display_id": "Hospital ID (shown in lists)",
               "created_at": "Record created at",
               "updated_at": "Last updated at"}
     for s in surveys.SECTIONS:
