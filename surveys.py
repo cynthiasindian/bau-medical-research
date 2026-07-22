@@ -356,9 +356,6 @@ SECTIONS = [
              "help": "The patient's hospital ID — shown in the patient list "
                      "and used to find the patient for the post-surgery "
                      "survey."},
-            {"key": "demo_phone", "label": "Contact number", "type": "text",
-             "required": False,
-             "help": "Optional — for arranging the post-surgery follow-up."},
             {"key": "demo_gender", "label": "Gender", "type": "radio",
              "required": True, "options": ["Male", "Female"]},
             {"key": "demo_age_group", "label": "Age", "type": "select",
@@ -558,12 +555,6 @@ SECTIONS = [
                  "week, or months of year backwards. "
                  "©1999 Hospital Elder Life Program, LLC.",
         "fields": [
-            # ---- Assessment info ----------------------------------------------
-            {"key": "cam_evaluator", "group": "Assessment info",
-             "label": "Evaluator", "type": "text", "required": True},
-            {"key": "cam_date", "label": "Date", "type": "date",
-             "required": True},
-
             # ---- I. Acute onset and fluctuating course ------------------------
             {"key": "cam_1a", "group": "I. Acute onset and fluctuating course",
              "label": "a) Is there evidence of an acute change in mental "
